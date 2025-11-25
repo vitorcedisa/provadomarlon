@@ -1,0 +1,4 @@
+Flask==3.0.2
+tinydb==4.8.2
+colorama==0.4.6
+
