@@ -156,11 +156,113 @@ def lambda_historian(event: Dict[str, Any], context: Optional[Dict[str, Any]] = 
     return {"status": "BACKED_UP", "arquivo": str(backup_file)}
 
 
+def lambda_validator(event: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Valida dados de atletas antes do cadastro."""
+    atleta = event.get("atleta", {})
+    erros = []
+
+    # Validação de nome
+    nome = atleta.get("nome", "").strip()
+    if not nome or len(nome) < 3:
+        erros.append("Nome deve ter pelo menos 3 caracteres")
+
+    # Validação de faixa
+    faixas_validas = ["Branca", "Azul", "Roxa", "Marrom", "Preta"]
+    faixa = atleta.get("faixa", "")
+    if faixa not in faixas_validas:
+        erros.append(f"Faixa inválida. Use uma das: {', '.join(faixas_validas)}")
+
+    # Validação de categoria
+    categorias_validas = ["Peso Leve", "Peso Médio", "Peso Pesado", "Absoluto"]
+    categoria = atleta.get("categoria", "")
+    if categoria not in categorias_validas:
+        erros.append(f"Categoria inválida. Use uma das: {', '.join(categorias_validas)}")
+
+    if erros:
+        print(Fore.RED + f"[Lambda Validator] Validação falhou: {', '.join(erros)}")
+        return {"valido": False, "erros": erros}
+
+    print(Fore.GREEN + f"[Lambda Validator] Atleta '{nome}' validado com sucesso.")
+    return {"valido": True, "atleta": atleta}
+
+
+def lambda_statistics(event: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Calcula estatísticas e rankings dos atletas."""
+    resultados = event.get("resultados", [])
+    atletas = event.get("atletas", [])
+
+    # Contagem de vitórias por atleta
+    vitorias = {}
+    for resultado in resultados:
+        vencedor = resultado.get("vencedor", {})
+        nome = vencedor.get("nome") if isinstance(vencedor, dict) else str(vencedor)
+        if nome:
+            vitorias[nome] = vitorias.get(nome, 0) + 1
+
+    # Ranking ordenado por vitórias
+    ranking = sorted(vitorias.items(), key=lambda x: x[1], reverse=True)
+
+    # Estatísticas gerais
+    total_lutas = len(resultados)
+    atletas_unicos = len(set(vitorias.keys()))
+
+    stats = {
+        "total_lutas": total_lutas,
+        "atletas_com_vitorias": atletas_unicos,
+        "total_atletas": len(atletas),
+        "ranking": [{"atleta": nome, "vitorias": vitorias} for nome, vitorias in ranking],
+        "calculado_em": datetime.utcnow().isoformat() + "Z",
+    }
+
+    print(Fore.CYAN + f"[Lambda Statistics] Estatísticas calculadas: {total_lutas} lutas, {atletas_unicos} vencedores.")
+    return stats
+
+
+def lambda_notifier(event: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Envia notificações de resultados finais via SNS."""
+    luta_id = event.get("luta_id", "LUTA-DESCONHECIDA")
+    vencedor = event.get("vencedor", {})
+    metodo = event.get("metodo", "Pontos")
+
+    nome_vencedor = vencedor.get("nome") if isinstance(vencedor, dict) else str(vencedor)
+    mensagem = f"Resultado da {luta_id}: {nome_vencedor} venceu por {metodo}!"
+
+    print(Fore.WHITE + Style.BRIGHT + f"[Lambda Notifier] Enviando notificação do resultado da {luta_id}.")
+    mock_aws.publish_sns(topic="jiujitsu-resultados", message=mensagem)
+    time.sleep(0.3)
+
+    return {"status": "NOTIFIED", "mensagem": mensagem}
+
+
+def lambda_scheduler(event: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Simula agendamento automático de lutas baseado nas chaves."""
+    chaves = event.get("chaves", [])
+    lutas_agendadas = []
+
+    for idx, chave in enumerate(chaves, 1):
+        luta_agendada = {
+            "luta_id": chave.get("luta_id"),
+            "atletas": chave.get("atletas", []),
+            "round": chave.get("round", "Classificatórias"),
+            "horario_previsto": f"{(idx * 15) // 60:02d}:{(idx * 15) % 60:02d}",
+            "tatame": "Principal" if idx % 2 == 1 else "Secundário",
+            "agendado_em": datetime.utcnow().isoformat() + "Z",
+        }
+        lutas_agendadas.append(luta_agendada)
+
+    print(Fore.MAGENTA + f"[Lambda Scheduler] {len(lutas_agendadas)} lutas agendadas automaticamente.")
+    return {"lutas_agendadas": lutas_agendadas, "total": len(lutas_agendadas)}
+
+
 __all__ = [
     "mock_aws",
     "lambda_matchmaker",
     "lambda_announcer",
     "lambda_historian",
+    "lambda_validator",
+    "lambda_statistics",
+    "lambda_notifier",
+    "lambda_scheduler",
 ]
 
 
